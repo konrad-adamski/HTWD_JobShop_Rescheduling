@@ -172,3 +172,15 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+ipynb_checkpoints/
+
+
+# PyCharm
+.idea/
+idea/
+
+*.pyc
+
