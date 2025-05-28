@@ -105,3 +105,34 @@ def is_start_correct(df_schedule: pd.DataFrame) -> bool:
         print(f"  {violations.sort_values("Start")}")
         return False
 
+
+
+def check_constraints(df_schedule: pd.DataFrame) -> bool:
+    """
+    Führt alle wichtigen Prüfungen auf einem Tages-Schedule durch:
+    - Maschinenkonflikte
+    - Job-Maschinen-Reihenfolge
+    - Startzeiten nach Ankunft
+    Gibt True zurück, wenn alle Prüfungen bestanden sind, sonst False.
+    """
+
+    checks_passed = True
+
+    if not is_machine_conflict_free(df_schedule):
+        checks_passed = False
+
+    if not is_operation_sequence_correct(df_schedule):
+        checks_passed = False
+
+    if not is_job_timing_correct(df_schedule):
+    checks_passed = False
+
+    if not is_start_correct(df_schedule):
+        checks_passed = False
+
+    if checks_passed:
+        print("\n+++ Alle Constraints wurden erfüllt.\n")
+    else:
+        print("\--- Es wurden Constraint-Verletzungen gefunden.\n")
+
+    return checks_passed
