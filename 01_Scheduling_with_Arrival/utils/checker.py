@@ -125,7 +125,7 @@ def check_constraints(df_schedule: pd.DataFrame) -> bool:
         checks_passed = False
 
     if not is_job_timing_correct(df_schedule):
-    checks_passed = False
+        checks_passed = False
 
     if not is_start_correct(df_schedule):
         checks_passed = False
