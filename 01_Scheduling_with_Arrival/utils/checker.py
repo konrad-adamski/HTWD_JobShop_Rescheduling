@@ -133,6 +133,6 @@ def check_constraints(df_schedule: pd.DataFrame) -> bool:
     if checks_passed:
         print("\n+++ Alle Constraints wurden erfüllt.\n")
     else:
-        print("\--- Es wurden Constraint-Verletzungen gefunden.\n")
+        print("\n--- Es wurden Constraint-Verletzungen gefunden.\n")
 
     return checks_passed
