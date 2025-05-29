@@ -1,5 +1,5 @@
 import pandas as pd
-
+import numpy as np 
 
 def get_times_df(df_jssp: pd.DataFrame,
                  arrivals: pd.DataFrame,
@@ -24,6 +24,8 @@ def get_times_df(df_jssp: pd.DataFrame,
                              buffer_factor=buffer_factor)
     
     df_times = pd.merge(arrivals, df_deadlines, on="Job")
+    df_times["Deadline"] = np.ceil(df_times["Deadline"])
+                                   
     return df_times
 
 
