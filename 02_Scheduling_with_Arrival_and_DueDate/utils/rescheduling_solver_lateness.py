@@ -2,24 +2,24 @@ import pulp
 import math
 import pandas as pd
 
-# Tardiness ---------------------------------------------------------------------------------------------------------------------------------------
+# Lateness ----------------------------------------------------------------------------------------------------------------------------------------
 # -------------------------------------------------------------------------------------------------------------------------------------------------
 
-# Min. Summe Tardiness ---------------------------------------------------------------------------------------------------------
+# Min. Summe Lateness ----------------------------------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------------------------------------------------------
 
 # mit Deviation Penalty ----------------
-def solve_jssp_sum_tardiness_with_devpen(df_jssp: pd.DataFrame, df_arrivals_deadlines: pd.DataFrame, df_executed: pd.DataFrame, 
-                                         df_original_plan: pd.DataFrame, r: float = 0.5, reschedule_start: float = 1440.0,
-                                         solver: str = 'HiGHS', epsilon: float = 0.0, sort_ascending: bool = False, **solver_args) -> pd.DataFrame:
+def solve_jssp_sum_absolute_lateness_with_devpen(df_jssp: pd.DataFrame, df_arrivals_deadlines: pd.DataFrame, df_executed: pd.DataFrame,
+                                                 df_original_plan: pd.DataFrame, r: float = 0.5, reschedule_start: float = 1440.0,
+                                                 solver: str = 'HiGHS', epsilon: float = 0.0, sort_ascending: bool = False, **solver_args) -> pd.DataFrame:
     """
-    Minimiert eine bikriterielle Zielfunktion: Summe der Tardiness und Abweichung vom ursprünglichen Plan.
+    Minimiert eine bikriterielle Zielfunktion: Summe der absoluten Lateness und Abweichung vom ursprünglichen Plan.
 
     Bereits ausgeführte Operationen (aus df_executed) bleiben erhalten. Neue Operationen werden ab
     reschedule_start neu geplant. Maschinenkonflikte und technologische Reihenfolge
     werden berücksichtigt.
 
-    Zielfunktion: Z(σ) = r * T(σ) + (1 - r) * D(σ)
+    Zielfunktion: Z(σ) = r * sum_j |C_j - d_j| + (1 - r) * D(σ)
     """
 
     # Vorbereitung
@@ -58,21 +58,24 @@ def solve_jssp_sum_tardiness_with_devpen(df_jssp: pd.DataFrame, df_arrivals_dead
     last_executed_end = df_executed.groupby("Job")["End"].max().to_dict()
 
     # Modell
-    prob = pulp.LpProblem("JSSP_Tardiness_Deviation", pulp.LpMinimize)
+    prob = pulp.LpProblem("JSSP_AbsLateness_Deviation", pulp.LpMinimize)
 
     starts = {(j, o): pulp.LpVariable(f"start_{j}_{o}", lowBound=arrival[jobs[j]])
               for j in range(n)
               for o in range(len(all_ops[j]))}
     ends = {j: pulp.LpVariable(f"end_{j}", lowBound=arrival[jobs[j]]) for j in range(n)}
-    tard = {j: pulp.LpVariable(f"tardiness_{j}", lowBound=0) for j in range(n)}
+    abs_lateness = {j: pulp.LpVariable(f"abs_lateness_{j}", lowBound=0) for j in range(n)}
     deviation_vars = {}
 
-    # Ziel: Tardiness und Abweichung
+    # Ziel: Absolute Lateness und Abweichung
     for j, job in enumerate(jobs):
         seq = all_ops[j]
         d_last = seq[-1][2]
         prob += ends[j] == starts[(j, len(seq)-1)] + d_last
-        prob += tard[j] >= ends[j] - deadline[job]
+
+        lateness_expr = ends[j] - deadline[job]
+        prob += abs_lateness[j] >= lateness_expr
+        prob += abs_lateness[j] >= -lateness_expr
 
         for o, (op_id, _, _) in enumerate(seq):
             key = (job, op_id)
@@ -82,7 +85,7 @@ def solve_jssp_sum_tardiness_with_devpen(df_jssp: pd.DataFrame, df_arrivals_dead
                 prob += dev >= starts[(j, o)] - original_start[key]
                 prob += dev >= original_start[key] - starts[(j, o)]
 
-    prob += r * pulp.lpSum(tard.values()) + (1 - r) * pulp.lpSum(deviation_vars.values())
+    prob += r * pulp.lpSum(abs_lateness.values()) + (1 - r) * pulp.lpSum(deviation_vars.values())
 
     # Technologische Reihenfolge und Startrestriktionen
     for j, job in enumerate(jobs):
@@ -132,6 +135,7 @@ def solve_jssp_sum_tardiness_with_devpen(df_jssp: pd.DataFrame, df_arrivals_dead
         for o, (op_id, m, d) in enumerate(all_ops[j]):
             st = starts[(j, o)].varValue
             ed = st + d
+            lateness = round(ed - deadline[job], 2)
             records.append({
                 "Job": job,
                 "Operation": op_id,
@@ -141,7 +145,8 @@ def solve_jssp_sum_tardiness_with_devpen(df_jssp: pd.DataFrame, df_arrivals_dead
                 "Start": round(st, 2),
                 "Processing Time": d,
                 "End": round(ed, 2),
-                "Tardiness": max(0, round(ed - deadline[job], 2))
+                "Lateness": lateness,
+                "Absolute Lateness": abs(lateness)
             })
 
     df_schedule = pd.DataFrame.from_records(records).sort_values(["Start", "Job", "Operation"]).reset_index(drop=True)
@@ -156,20 +161,33 @@ def solve_jssp_sum_tardiness_with_devpen(df_jssp: pd.DataFrame, df_arrivals_dead
 
 
 # einfach ----------------
-def solve_jssp_sum_tardiness_with_fixed_ops(df_jssp: pd.DataFrame, df_arrivals_deadlines: pd.DataFrame, df_executed: pd.DataFrame,
-                                            reschedule_start: float = 1440.0, solver: str = 'HiGHS', epsilon: float = 0.0,
-                                            sort_ascending: bool = False, **solver_args) -> pd.DataFrame:
+def solve_jssp_sum_absolute_lateness_with_fixed_ops(df_jssp: pd.DataFrame, df_arrivals_deadlines: pd.DataFrame, df_executed: pd.DataFrame,
+                                                    reschedule_start: float = 1440.0, solver: str = 'HiGHS', epsilon: float = 0.0,
+                                                    sort_ascending: bool = False, **solver_args) -> pd.DataFrame:
     """
-    Minimiert die Summe der Tardiness (Verspätungen) aller Jobs mit fixierten Operationen.
+    Minimiert die Summe der absoluten Lateness (Früh- oder Spätfertigung) aller Jobs mit fixierten Operationen.
 
     Bereits ausgeführte Operationen (aus df_executed) bleiben erhalten. Neue Operationen werden ab
     reschedule_start neu geplant. Maschinenkonflikte und technologische Reihenfolge
     werden vollständig berücksichtigt.
 
-    Zielfunktion: sum_j [ max(0, Endzeit_j - Deadline_j) ]
+    Zielfunktion: sum_j [ |Endzeit_j - Deadline_j| ]
+
+    Parameter:
+    - df_jssp: DataFrame mit ['Job','Operation','Machine','Processing Time']
+    - df_arrivals_deadlines: DataFrame mit ['Job','Arrival','Deadline']
+    - df_executed: DataFrame mit ['Job','Operation','Machine','Start','End']
+    - reschedule_start: Zeitpunkt, ab dem neu geplant wird (z. B. 1440 für Tag 1, 0:00 Uhr)
+    - solver: 'HiGHS' oder 'CBC' zur Solver-Auswahl
+    - epsilon: Pufferzeit für Maschinenwechsel
+    - sort_ascending: ob die Jobs nach Deadline aufsteigend sortiert werden
+    - **solver_args: Weitere Argumente für den Solver
+
+    Rückgabe:
+    - DataFrame mit vollständigem Zeitplan und Spalten für Lateness und Absolute Lateness
     """
 
-    # 1. Vorverarbeitung
+    # 1. Vorverarbeitung der Eingabedaten
     df_arrivals_deadlines = df_arrivals_deadlines.sort_values("Deadline", ascending=sort_ascending).reset_index(drop=True)
     arrival = df_arrivals_deadlines.set_index("Job")["Arrival"].to_dict()
     deadline = df_arrivals_deadlines.set_index("Job")["Deadline"].to_dict()
@@ -181,7 +199,7 @@ def solve_jssp_sum_tardiness_with_fixed_ops(df_jssp: pd.DataFrame, df_arrivals_d
     num_machines = df_jssp["Machine"].nunique()
     bigM = math.ceil((max_deadline - min_arrival + sum_proc_time / math.sqrt(num_machines)) / 1000) * 1000
 
-    # 2. Operationen je Job
+    # 2. Operationen je Job gruppieren
     ops_grouped = df_jssp.sort_values(["Job", "Operation"]).groupby("Job")
     all_ops = []
     machines = set()
@@ -197,7 +215,7 @@ def solve_jssp_sum_tardiness_with_fixed_ops(df_jssp: pd.DataFrame, df_arrivals_d
 
     n = len(jobs)
 
-    # Fixierte Operationen
+    # 3. Fixierte Operationen (bereits ausgeführt)
     df_executed_fixed = df_executed[df_executed["End"] >= reschedule_start].copy()
     fixed_ops = {
         m: list(grp[["Start", "End", "Job"]].itertuples(index=False, name=None))
@@ -205,9 +223,10 @@ def solve_jssp_sum_tardiness_with_fixed_ops(df_jssp: pd.DataFrame, df_arrivals_d
     }
     last_executed_end = df_executed.groupby("Job")["End"].max().to_dict()
 
-    # 3. Modell
-    prob = pulp.LpProblem("JSSP_SumTardiness_Fixed", pulp.LpMinimize)
+    # 4. Optimierungsmodell definieren
+    prob = pulp.LpProblem("JSSP_SumAbsoluteLateness_Fixed", pulp.LpMinimize)
 
+    # Entscheidungsvariablen
     starts = {
         (j, o): pulp.LpVariable(f"start_{j}_{o}", lowBound=arrival[jobs[j]])
         for j in range(n)
@@ -219,15 +238,15 @@ def solve_jssp_sum_tardiness_with_fixed_ops(df_jssp: pd.DataFrame, df_arrivals_d
         for j in range(n)
     }
 
-    tard = {
-        j: pulp.LpVariable(f"tardiness_{j}", lowBound=0)
+    abs_lateness = {
+        j: pulp.LpVariable(f"abs_lateness_{j}", lowBound=0)
         for j in range(n)
     }
 
-    # Zielfunktion
-    prob += pulp.lpSum(tard[j] for j in range(n))
+    # 5. Zielfunktion: Minimierung der Summe der absoluten Abweichungen von den Deadlines
+    prob += pulp.lpSum(abs_lateness[j] for j in range(n))
 
-    # Technologische Reihenfolge + Tardiness
+    # 6. Technologische Reihenfolge und Lateness-Berechnung
     for j, job in enumerate(jobs):
         seq = all_ops[j]
         earliest = max(arrival[job], last_executed_end.get(job, reschedule_start))
@@ -237,9 +256,12 @@ def solve_jssp_sum_tardiness_with_fixed_ops(df_jssp: pd.DataFrame, df_arrivals_d
             prob += starts[(j, o)] >= starts[(j, o - 1)] + d_prev
         d_last = seq[-1][2]
         prob += ends[j] == starts[(j, len(seq) - 1)] + d_last
-        prob += tard[j] >= ends[j] - deadline[job]
 
-    # Maschinenkonflikte inkl. Fixierte
+        lateness = ends[j] - deadline[job]
+        prob += abs_lateness[j] >= lateness
+        prob += abs_lateness[j] >= -lateness
+
+    # 7. Maschinenkonflikte mit Fixierungen berücksichtigen
     for m in machines:
         ops_on_m = [
             (j, o, seq[o][2])
@@ -256,13 +278,14 @@ def solve_jssp_sum_tardiness_with_fixed_ops(df_jssp: pd.DataFrame, df_arrivals_d
                 prob += starts[(j1, o1)] + d1 + epsilon <= starts[(j2, o2)] + bigM * (1 - y)
                 prob += starts[(j2, o2)] + d2 + epsilon <= starts[(j1, o1)] + bigM * y
 
+        # Gegenüberstellung mit fixierten Operationen auf derselben Maschine
         for j1, o1, d1 in ops_on_m:
             for fixed_start, fixed_end, fixed_job in fixed_ops.get(m, []):
                 y_fix = pulp.LpVariable(f"y_fix_{j1}_{o1}_{fixed_job}", cat="Binary")
                 prob += starts[(j1, o1)] + d1 + epsilon <= fixed_start + bigM * (1 - y_fix)
                 prob += fixed_end + epsilon <= starts[(j1, o1)] + bigM * y_fix
 
-    # Solver
+    # 8. Solver-Konfiguration und -Aufruf
     solver_args.setdefault("msg", True)
     solver = solver.upper()
     if solver == "HIGHS":
@@ -275,12 +298,13 @@ def solve_jssp_sum_tardiness_with_fixed_ops(df_jssp: pd.DataFrame, df_arrivals_d
     prob.solve(cmd)
     objective_value = pulp.value(prob.objective)
 
-    # Ergebnisse extrahieren
+    # 9. Ergebnisse extrahieren
     records = []
     for j, job in enumerate(jobs):
         for o, (op_id, m, d) in enumerate(all_ops[j]):
             st = starts[(j, o)].varValue
             ed = st + d
+            lateness = round(ed - deadline[job], 2)
             records.append({
                 "Job": job,
                 "Operation": op_id,
@@ -290,14 +314,15 @@ def solve_jssp_sum_tardiness_with_fixed_ops(df_jssp: pd.DataFrame, df_arrivals_d
                 "Start": round(st, 2),
                 "Processing Time": d,
                 "End": round(ed, 2),
-                "Tardiness": max(0, round(ed - deadline[job], 2))
+                "Lateness": lateness,
+                "Absolute Lateness": abs(lateness)
             })
 
     df_schedule = pd.DataFrame.from_records(records).sort_values(["Start", "Job", "Operation"]).reset_index(drop=True)
 
-    # Logging
+    # 10. Logging
     print("\nSolver-Informationen:")
-    print(f"  Summe Tardiness         : {round(objective_value, 4)}")
+    print(f"  Summe Absolute Lateness : {round(objective_value, 4)}")
     print(f"  Solver-Status           : {pulp.LpStatus[prob.status]}")
     print(f"  Anzahl Variablen        : {len(prob.variables())}")
     print(f"  Anzahl Constraints      : {len(prob.constraints)}")
@@ -306,21 +331,24 @@ def solve_jssp_sum_tardiness_with_fixed_ops(df_jssp: pd.DataFrame, df_arrivals_d
 
 
 
-# Min. Max Tardiness -----------------------------------------------------------------------------------------------------------
+# Min. Max Lateness ------------------------------------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------------------------------------------------------
 
 # mit Deviation Penalty ----------------
-def solve_jssp_max_tardiness_with_devpen(df_jssp: pd.DataFrame, df_arrivals_deadlines: pd.DataFrame, df_executed: pd.DataFrame,
-                                         df_original_plan: pd.DataFrame, r: float = 0.5, reschedule_start: float = 1440.0,
-                                         solver: str = 'HiGHS', epsilon: float = 0.0, sort_ascending: bool = False, **solver_args) -> pd.DataFrame:
+def solve_jssp_max_absolute_lateness_with_devpen(df_jssp: pd.DataFrame, df_arrivals_deadlines: pd.DataFrame, df_executed: pd.DataFrame,
+                                                  df_original_plan: pd.DataFrame, r: float = 0.5, reschedule_start: float = 1440.0,
+                                                  solver: str = 'HiGHS', epsilon: float = 0.0, sort_ascending: bool = False, **solver_args) -> pd.DataFrame:
     """
-    Minimiert eine bikriterielle Zielfunktion:
-    Maximale Tardiness + Abweichung vom ursprünglichen Plan (weighted sum).
+    Minimiert eine bikriterielle Zielfunktion: maximale absolute Lateness und Abweichung vom ursprünglichen Plan.
 
-    Zielfunktion: Z(σ) = r * max_j Tardiness_j + (1 - r) * D(σ)
+    Bereits ausgeführte Operationen (aus df_executed) bleiben erhalten. Neue Operationen werden ab
+    reschedule_start neu geplant. Maschinenkonflikte und technologische Reihenfolge
+    werden berücksichtigt.
+
+    Zielfunktion: Z(σ) = r * max_j |C_j - d_j| + (1 - r) * D(σ)
     """
 
-    # 1. Vorverarbeitung
+    # Vorbereitung
     df_arrivals_deadlines = df_arrivals_deadlines.sort_values("Deadline", ascending=sort_ascending).reset_index(drop=True)
     arrival = df_arrivals_deadlines.set_index("Job")["Arrival"].to_dict()
     deadline = df_arrivals_deadlines.set_index("Job")["Deadline"].to_dict()
@@ -337,10 +365,8 @@ def solve_jssp_max_tardiness_with_devpen(df_jssp: pd.DataFrame, df_arrivals_dead
     num_machines = df_jssp["Machine"].nunique()
     bigM = math.ceil((max_deadline - min_arrival + sum_proc_time / math.sqrt(num_machines)) / 1000) * 1000
 
-    # 2. Operationen je Job
     ops_grouped = df_jssp.sort_values(["Job", "Operation"]).groupby("Job")
-    all_ops = []
-    machines = set()
+    all_ops, machines = [], set()
     for job in jobs:
         seq = []
         for _, row in ops_grouped.get_group(job).iterrows():
@@ -350,29 +376,36 @@ def solve_jssp_max_tardiness_with_devpen(df_jssp: pd.DataFrame, df_arrivals_dead
         all_ops.append(seq)
 
     n = len(jobs)
-
-    # Fixierte Operationen
     df_executed_fixed = df_executed[df_executed["End"] >= reschedule_start].copy()
     fixed_ops = {
-        m: list(grp[["Start", "End", "Job"]].itertuples(index=False, name=None))
-        for m, grp in df_executed_fixed.groupby("Machine")
+        m: list(g[["Start", "End", "Job"]].itertuples(index=False, name=None))
+        for m, g in df_executed_fixed.groupby("Machine")
     }
     last_executed_end = df_executed.groupby("Job")["End"].max().to_dict()
 
-    # 3. Modell
-    prob = pulp.LpProblem("JSSP_MaxTardiness_DevPen", pulp.LpMinimize)
+    # Modell
+    prob = pulp.LpProblem("JSSP_MaxAbsLateness_Deviation", pulp.LpMinimize)
 
     starts = {(j, o): pulp.LpVariable(f"start_{j}_{o}", lowBound=arrival[jobs[j]])
               for j in range(n)
               for o in range(len(all_ops[j]))}
-
     ends = {j: pulp.LpVariable(f"end_{j}", lowBound=arrival[jobs[j]]) for j in range(n)}
-    tard = {j: pulp.LpVariable(f"tardiness_{j}", lowBound=0) for j in range(n)}
-    max_tard = pulp.LpVariable("max_tardiness", lowBound=0)
-
+    abs_lateness = {j: pulp.LpVariable(f"abs_lateness_{j}", lowBound=0) for j in range(n)}
     deviation_vars = {}
+    max_abs_lat = pulp.LpVariable("max_absolute_lateness", lowBound=0)
+
+    # Ziel: max. absolute Lateness + Planabweichung
     for j, job in enumerate(jobs):
-        for o, (op_id, _, _) in enumerate(all_ops[j]):
+        seq = all_ops[j]
+        d_last = seq[-1][2]
+        prob += ends[j] == starts[(j, len(seq) - 1)] + d_last
+
+        lateness_expr = ends[j] - deadline[job]
+        prob += abs_lateness[j] >= lateness_expr
+        prob += abs_lateness[j] >= -lateness_expr
+        prob += max_abs_lat >= abs_lateness[j]
+
+        for o, (op_id, _, _) in enumerate(seq):
             key = (job, op_id)
             if key in original_start:
                 dev = pulp.LpVariable(f"dev_{j}_{o}", lowBound=0)
@@ -380,23 +413,17 @@ def solve_jssp_max_tardiness_with_devpen(df_jssp: pd.DataFrame, df_arrivals_dead
                 prob += dev >= starts[(j, o)] - original_start[key]
                 prob += dev >= original_start[key] - starts[(j, o)]
 
-    # Zielfunktion
-    prob += r * max_tard + (1 - r) * pulp.lpSum(deviation_vars.values())
+    prob += r * max_abs_lat + (1 - r) * pulp.lpSum(deviation_vars.values())
 
-    # 4. Technologische Reihenfolge & Tardiness
+    # Technologische Reihenfolge & Startrestriktionen
     for j, job in enumerate(jobs):
         seq = all_ops[j]
         earliest = max(arrival[job], last_executed_end.get(job, reschedule_start))
         prob += starts[(j, 0)] >= earliest
         for o in range(1, len(seq)):
-            d_prev = seq[o - 1][2]
-            prob += starts[(j, o)] >= starts[(j, o - 1)] + d_prev
-        d_last = seq[-1][2]
-        prob += ends[j] == starts[(j, len(seq) - 1)] + d_last
-        prob += tard[j] >= ends[j] - deadline[job]
-        prob += max_tard >= tard[j]
+            prob += starts[(j, o)] >= starts[(j, o - 1)] + seq[o - 1][2]
 
-    # 5. Maschinenkonflikte inkl. Fixierte
+    # Maschinenkonflikte inkl. Fixierte
     for m in machines:
         ops_on_m = [(j, o, seq[o][2])
                     for j, seq in enumerate(all_ops)
@@ -417,7 +444,7 @@ def solve_jssp_max_tardiness_with_devpen(df_jssp: pd.DataFrame, df_arrivals_dead
                 prob += starts[(j1, o1)] + d1 + epsilon <= fixed_start + bigM * (1 - y_fix)
                 prob += fixed_end + epsilon <= starts[(j1, o1)] + bigM * y_fix
 
-    # 6. Solver
+    # Solver-Auswahl
     solver_args.setdefault("msg", True)
     solver = solver.upper()
     if solver == "HIGHS":
@@ -430,12 +457,13 @@ def solve_jssp_max_tardiness_with_devpen(df_jssp: pd.DataFrame, df_arrivals_dead
     prob.solve(cmd)
     objective_value = pulp.value(prob.objective)
 
-    # 7. Ergebnis extrahieren
+    # Ergebnisse
     records = []
     for j, job in enumerate(jobs):
         for o, (op_id, m, d) in enumerate(all_ops[j]):
             st = starts[(j, o)].varValue
             ed = st + d
+            lateness = round(ed - deadline[job], 2)
             records.append({
                 "Job": job,
                 "Operation": op_id,
@@ -445,7 +473,8 @@ def solve_jssp_max_tardiness_with_devpen(df_jssp: pd.DataFrame, df_arrivals_dead
                 "Start": round(st, 2),
                 "Processing Time": d,
                 "End": round(ed, 2),
-                "Tardiness": max(0, round(ed - deadline[job], 2))
+                "Lateness": lateness,
+                "Absolute Lateness": abs(lateness)
             })
 
     df_schedule = pd.DataFrame.from_records(records).sort_values(["Start", "Job", "Operation"]).reset_index(drop=True)
@@ -460,11 +489,17 @@ def solve_jssp_max_tardiness_with_devpen(df_jssp: pd.DataFrame, df_arrivals_dead
 
 
 # einfach ----------------
-def solve_jssp_max_tardiness_with_fixed_ops(df_jssp: pd.DataFrame, df_arrivals_deadlines: pd.DataFrame, df_executed: pd.DataFrame,
-                                            reschedule_start: float = 1440.0, solver: str = 'HiGHS', epsilon: float = 0.0,
-                                            sort_ascending: bool = False, **solver_args) -> pd.DataFrame:
+def solve_jssp_max_absolute_lateness_with_fixed_ops(df_jssp: pd.DataFrame, df_arrivals_deadlines: pd.DataFrame, df_executed: pd.DataFrame,
+                                                    reschedule_start: float = 1440.0, solver: str = 'HiGHS', epsilon: float = 0.0,
+                                                    sort_ascending: bool = False, **solver_args) -> pd.DataFrame:
     """
-    Minimiert die maximale Tardiness unter allen Jobs mit fixierten Operationen.
+    Minimiert die maximale absolute Lateness (Früh- oder Spätfertigung) unter allen Jobs mit fixierten Operationen.
+
+    Bereits ausgeführte Operationen (aus df_executed) bleiben erhalten. Neue Operationen werden ab
+    reschedule_start neu geplant. Maschinenkonflikte und technologische Reihenfolge
+    werden vollständig berücksichtigt.
+
+    Zielfunktion: min max_j |Endzeit_j - Deadline_j|
     """
 
     # 1. Vorverarbeitung
@@ -502,20 +537,20 @@ def solve_jssp_max_tardiness_with_fixed_ops(df_jssp: pd.DataFrame, df_arrivals_d
     last_executed_end = df_executed.groupby("Job")["End"].max().to_dict()
 
     # 3. LP-Modell
-    prob = pulp.LpProblem("JSSP_MaxTardiness_Fixed", pulp.LpMinimize)
+    prob = pulp.LpProblem("JSSP_MaxAbsoluteLateness_Fixed", pulp.LpMinimize)
 
     starts = {(j, o): pulp.LpVariable(f"start_{j}_{o}", lowBound=arrival[jobs[j]])
               for j in range(n)
               for o in range(len(all_ops[j]))}
 
     ends = {j: pulp.LpVariable(f"end_{j}", lowBound=arrival[jobs[j]]) for j in range(n)}
-    tard = {j: pulp.LpVariable(f"tardiness_{j}", lowBound=0) for j in range(n)}
-    max_tard = pulp.LpVariable("max_tardiness", lowBound=0)
+    abs_lateness = {j: pulp.LpVariable(f"abs_lateness_{j}", lowBound=0) for j in range(n)}
+    max_abs_lateness = pulp.LpVariable("max_abs_lateness", lowBound=0)
 
     # Zielfunktion
-    prob += max_tard
+    prob += max_abs_lateness
 
-    # 4. Technologische Reihenfolge & Tardiness-Berechnung
+    # 4. Technologische Reihenfolge & Lateness-Berechnung
     for j, job in enumerate(jobs):
         seq = all_ops[j]
         earliest = max(arrival[job], last_executed_end.get(job, reschedule_start))
@@ -525,8 +560,11 @@ def solve_jssp_max_tardiness_with_fixed_ops(df_jssp: pd.DataFrame, df_arrivals_d
             prob += starts[(j, o)] >= starts[(j, o - 1)] + d_prev
         d_last = seq[-1][2]
         prob += ends[j] == starts[(j, len(seq) - 1)] + d_last
-        prob += tard[j] >= ends[j] - deadline[job]
-        prob += max_tard >= tard[j]
+
+        lateness_expr = ends[j] - deadline[job]
+        prob += abs_lateness[j] >= lateness_expr
+        prob += abs_lateness[j] >= -lateness_expr
+        prob += max_abs_lateness >= abs_lateness[j]
 
     # 5. Maschinenkonflikte (inkl. Fixierte)
     for m in machines:
@@ -568,6 +606,7 @@ def solve_jssp_max_tardiness_with_fixed_ops(df_jssp: pd.DataFrame, df_arrivals_d
         for o, (op_id, m, d) in enumerate(all_ops[j]):
             st = starts[(j, o)].varValue
             ed = st + d
+            lateness = round(ed - deadline[job], 2)
             records.append({
                 "Job": job,
                 "Operation": op_id,
@@ -577,14 +616,15 @@ def solve_jssp_max_tardiness_with_fixed_ops(df_jssp: pd.DataFrame, df_arrivals_d
                 "Start": round(st, 2),
                 "Processing Time": d,
                 "End": round(ed, 2),
-                "Tardiness": max(0, round(ed - deadline[job], 2))
+                "Lateness": lateness,
+                "Absolute Lateness": abs(lateness)
             })
 
     df_schedule = pd.DataFrame.from_records(records).sort_values(["Start", "Job", "Operation"]).reset_index(drop=True)
 
     # 8. Logging
     print("\nSolver-Informationen:")
-    print(f"  Maximale Tardiness      : {round(objective_value, 4)}")
+    print(f"  Max. Absolute Lateness  : {round(objective_value, 4)}")
     print(f"  Solver-Status           : {pulp.LpStatus[prob.status]}")
     print(f"  Anzahl Variablen        : {len(prob.variables())}")
     print(f"  Anzahl Constraints      : {len(prob.constraints)}")
