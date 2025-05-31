@@ -135,57 +135,59 @@ def plot_gantt_machines(schedule_df: pd.DataFrame, title: str = "Gantt-Diagramm 
 # Dataframe gruppiert ----------------------------------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------------------------------------------------------
 
-def count_column_grouped(df: pd.DataFrame, column: str = 'Tardiness',
-                         bins: list = [-np.inf, 0, 30, 60, 120, 240, 480, 720, 1440, 2880, np.inf], right_closed: bool = False) -> pd.Series:
-    """
-    Zählt Werte in definierten Intervallen, trennt Null-Werte explizit und
-    erfasst auch negative Werte (<0) separat.
+def count_column_grouped(df: pd.DataFrame, column: str = 'Tardiness', steps = 60, min_val = 0, max_val= 180, right_closed: bool = False) -> pd.Series:
 
-    Parameters:
-        df (pd.DataFrame): Input DataFrame
-        column (str): Zu gruppierende Spalte
-        bins (list): Intervallgrenzen, inkl. -inf und inf
-        right_closed (bool): Ob die rechte Grenze inklusiv ist (Standard: linksoffen)
+    # 1. Bins je nach Spalte
+    if column in ['Tardiness', "Absolute Lateness"]:
+        inner_bins = list(range(min_val, max_val + steps, steps))
+        bins = inner_bins + [np.inf]  # Kein -inf
+    else:
+        min_val = -max_val if min_val >= 0 else min_val
+        inner_bins = list(range(min_val, max_val + steps, steps))
+        inner_bins = list(range(min_val, max_val + steps, steps))
+        if 0 not in inner_bins:
+            inner_bins.append(0)
+            inner_bins = sorted(inner_bins)
+        bins = [-np.inf] + inner_bins + [np.inf]  # Mit -inf und +inf
 
-    Returns:
-        pd.Series: Gezählte Werte mit Intervall-Indizes,
-                   z. B. '<0', '0', '0-100', '100-200', '200-500', '>500'
-    """
-    # 1. Input-Validierung
+
+    # 2. Spalte prüfen
     if column not in df.columns:
         raise ValueError(f"Spalte '{column}' existiert nicht. Verfügbare Spalten: {list(df.columns)}")
 
-    # 2. Null-Werte separat zählen
+    # 3. Zähle Null-Werte separat
     zero_count = (df[column] == 0).sum()
-
-    # 3. Nur Nicht-Null-Werte für bins
     non_zero = df.loc[df[column] != 0, column]
 
-    # 4. Dynamische Label-Erzeugung aus den Bin-Grenzen
+    # 4. Labels erzeugen
     labels = []
+    bin_keys = []
     for lo, hi in zip(bins[:-1], bins[1:]):
         if np.isneginf(lo):
-            labels.append('<' + str(int(hi)) if not np.isposinf(hi) else '<inf')
+            labels.append(f"<{int(hi)}")
+            bin_keys.append(lo + 0.1)  # z. B. -119.9
         elif np.isposinf(hi):
-            labels.append('>' + str(int(lo)))
+            labels.append(f">{int(lo)}")
+            bin_keys.append(hi - 0.1)  # z. B. 2880 - 0.1
         else:
-            labels.append(f"{int(lo)}-{int(hi)}")
-    # Beispiel: ['<0', '0-100', '100-200', '200-500', '>500']
+            labels.append(f"{int(lo)} - {int(hi)}")
+            bin_keys.append((lo + hi) / 2)
 
-    # 5. Gruppierung für alle Nicht-Null-Werte
+    # 5. Cutting
     grouped = pd.cut(non_zero, bins=bins, labels=labels, right=right_closed, include_lowest=True)
-
-    # 6. Zählung pro Intervall
     counts = grouped.value_counts().reindex(labels, fill_value=0)
 
-    # 7. Zero-Wert-Count einfügen
-    #    Hier setzen wir das Label '0' zwischen '<0' und '0-100'
-    result = pd.concat([
-        pd.Series({labels[0]: counts.iloc[0]}),  # '<0'
-        pd.Series({'0': zero_count}),
-        counts.iloc[1:].rename_axis(None)
-    ]).astype(int)
+    # 6. Zero-Label einfügen
+    counts["0"] = zero_count
+    bin_keys.append(0)  # Füge Schlüssel für '0' ein
+    labels.append("0")
 
-    return result
+    # 7. Korrekt sortieren
+    sort_df = pd.DataFrame({'label': labels, 'key': bin_keys}).set_index('label')
+    sorted_counts = counts.loc[sort_df.sort_values('key').index]
+
+    return sorted_counts.astype(int)
+
+
 
 
