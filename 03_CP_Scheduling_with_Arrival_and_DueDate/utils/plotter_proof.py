@@ -87,30 +87,38 @@ def proof_of_concept_v1(dev_A, dev_B,
 
 # Combi --------------------------------------------------------------------------------------------------------------
 
-def plot_tardiness_earliness_two_methods(tardiness_A, earliness_A,
-                                          tardiness_B, earliness_B,
-                                          labels=("Simple", "DevPen"),
-                                          title="Tagesvergleich der Termintreue (Tardiness & Earliness)",
-                                          ylabel="Anteil (in %)", y_lim = 50):
 
+def plot_tardiness_earliness_two_methods(tardiness_A, earliness_A,
+                                         tardiness_B, earliness_B,
+                                         labels=("Simple", "DevPen"),
+                                         title="Vergleich der Termintreue",
+                                         subtitle=None,
+                                         ylabel="Ø Abweichung (Minuten)",
+                                         y_lim_min=None, y_lim_max=None, as_percentage=False):
     days = np.arange(len(tardiness_A))
 
-    t_A = np.array(tardiness_A) * 100
-    e_A = -np.array(earliness_A) * 100
-    t_B = np.array(tardiness_B) * 100
-    e_B = -np.array(earliness_B) * 100
+    # Optional in Prozent umrechnen
+    factor = 100 if as_percentage else 1
+
+    t_A = np.array(tardiness_A) * factor
+    e_A = -np.array(earliness_A) * factor
+    t_B = np.array(tardiness_B) * factor
+    e_B = -np.array(earliness_B) * factor
 
     plt.figure(figsize=(10, 6))
 
-    # Linien mit fester Farbe und umgekehrter Beschriftung
+    # Linien zeichnen
     plt.plot(days, t_A, marker='o', color='blue', label=f"{labels[0]} – Tardiness")
     plt.plot(days, e_A, marker='s', color='#87CEEB', label=f"{labels[0]} – Earliness")
     plt.plot(days, t_B, marker='o', linestyle='--', color='red', label=f"{labels[1]} – Tardiness")
     plt.plot(days, e_B, marker='s', linestyle='--', color='#FF6347', label=f"{labels[1]} – Earliness")
 
+    # Werte beschriften
     def label_line(x, y):
         for xi, yi in zip(x, y):
-            plt.text(xi + 0.1, yi + 0.5, f"{yi:.1f}", ha='center', va='bottom', fontsize=8)
+            if abs(yi) > 0.01:
+                plt.text(xi + 0.1, yi + 0.5 * np.sign(yi), f"{yi:.1f}", 
+                         ha='center', va='bottom', fontsize=8)
 
     label_line(days, t_A)
     label_line(days, e_A)
@@ -119,13 +127,62 @@ def plot_tardiness_earliness_two_methods(tardiness_A, earliness_A,
 
     plt.xlabel("Zeit (in Tagen)")
     plt.ylabel(ylabel)
-    plt.title(title)
+    
+    full_title = title
+    if subtitle:
+        full_title = f"{title} {subtitle}"
+    plt.title(full_title)
+
     plt.xticks(days)
     plt.grid(True, axis='y')
-    plt.ylim(-y_lim, y_lim)
+
+    # Y-Achsenlimits robust setzen
+    if y_lim_min is not None and y_lim_max is not None:
+        plt.ylim(y_lim_min, y_lim_max)
+    elif y_lim_min is not None:
+        plt.ylim(bottom=y_lim_min)
+    elif y_lim_max is not None:
+        plt.ylim(top=y_lim_max)
+
     plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
     plt.tight_layout()
     plt.show()
+
+
+def plot_two_starttime_deviation_bars(dev_A, dev_B,
+                                      label_A="Strategie A",
+                                      label_B="Strategie B",
+                                      title="Vergleich der Startzeitabweichungen jeder Operation pro Tag",
+                                      ylabel="Summe der Abweichungen",
+                                      xlabel="Tag"):
+    days = list(range(len(dev_A)))
+    assert len(dev_A) == len(dev_B), "Beide Deviation-Listen müssen gleich lang sein."
+
+    bar_width = 0.4
+
+    plt.figure(figsize=(10, 6))
+    bars_A = plt.bar([d - bar_width/2 for d in days], dev_A, width=bar_width, label=label_A, color='darkblue')
+    bars_B = plt.bar([d + bar_width/2 for d in days], dev_B, width=bar_width, label=label_B, color='darkred')
+
+    for bar in bars_A:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2, height + 0.5, f"{height:.1f}",
+                 ha='center', va='bottom', fontsize=9)
+
+    for bar in bars_B:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2, height + 0.5, f"{height:.1f}",
+                 ha='center', va='bottom', fontsize=9)
+
+    plt.xlabel(xlabel)
+    plt.ylabel(f"{ylabel} (in Minuten)")
+    plt.title(title)
+    plt.xticks(days)
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
+    plt.tight_layout()
+    plt.show()
+
 
 # Legacy -------------------------------------------------------------------------------------------------------------
 

@@ -26,7 +26,43 @@ def compute_tardiness_earliness_ideal_ratios(df_plan_last_ops_list):
         ideal_ratio_per_day.append(ideal_ratio)
 
     return tardiness_ratio_per_day, earliness_ratio_per_day, ideal_ratio_per_day
-    
+
+def compute_mean_tardiness_earliness(df_plan_last_ops_list):
+    mean_tardiness_per_day = []
+    mean_earliness_per_day = []
+
+    for df in df_plan_last_ops_list:
+        mean_tardiness = df["Tardiness"].mean()
+        mean_earliness = df["Earliness"].mean()
+
+        mean_tardiness_per_day.append(mean_tardiness)
+        mean_earliness_per_day.append(mean_earliness)
+
+    return mean_tardiness_per_day, mean_earliness_per_day
+
+
+def compute_nonzero_mean_tardiness_earliness(df_plan_last_ops_list):
+    mean_tardiness_per_day = []
+    mean_earliness_per_day = []
+
+    for df in df_plan_last_ops_list:
+        # Nur Tardiness-Werte > 0 berücksichtigen
+        tardiness_values = df["Tardiness"][df["Tardiness"] > 0]
+        if not tardiness_values.empty:
+            mean_tardiness = tardiness_values.mean()
+        else:
+            mean_tardiness = 0.0
+        mean_tardiness_per_day.append(mean_tardiness)
+
+        # Nur Earliness-Werte > 0 berücksichtigen
+        earliness_values = df["Earliness"][df["Earliness"] > 0]
+        if not earliness_values.empty:
+            mean_earliness = earliness_values.mean()
+        else:
+            mean_earliness = 0.0
+        mean_earliness_per_day.append(mean_earliness)
+
+    return mean_tardiness_per_day, mean_earliness_per_day
 
 # Deviation ---------------------------------------------------------------------------------------------------------------
 # -------------------------------------------------------------------------------------------------------------------------
