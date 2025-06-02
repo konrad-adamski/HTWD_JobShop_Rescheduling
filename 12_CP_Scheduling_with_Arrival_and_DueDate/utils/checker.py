@@ -102,7 +102,8 @@ def is_start_correct(df_schedule: pd.DataFrame) -> bool:
         return True
     else:
         print(f"- Fehlerhafte Starts gefunden ({len(violations)} Zeilen):")
-        print(f"  {violations.sort_values("Start")}")
+        vals = violations.sort_values("Start")
+        print(f"  {vals}")
         return False
 
 
