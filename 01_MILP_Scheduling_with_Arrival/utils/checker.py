@@ -32,61 +32,60 @@ def is_machine_conflict_free(df_schedule: pd.DataFrame) -> bool:
 
 def is_operation_sequence_correct(df_schedule: pd.DataFrame) -> bool:
     """
-    Prüft, ob für jeden Job die Operationen fortlaufend, aufsteigend und lückenlos sind.
-
-    Parameter:
-    - df_schedule: DataFrame mit Spalten ['Job', 'Operation', …]
+    Prüft, ob innerhalb jedes Jobs die Operationen in der richtigen technologischen Reihenfolge
+    ausgeführt wurden. Dabei wird geprüft, ob die nach Startzeit sortierten Operationen
+    auch nach 'Operation' aufsteigend sind.
 
     Rückgabe:
-    - True, wenn jeder Job eine fortlaufende und lückenlose Operationssequenz aufweist.
-      Sonst False und Ausgabe der betroffenen Jobs.
+    - True, wenn korrekt. Sonst False mit Ausgabe betroffener Jobs.
     """
     violations = []
-    for job, grp in df_schedule.groupby('Job', sort=False):
-        ops = sorted(grp['Operation'].tolist())
-        expected = list(range(ops[0], ops[-1] + 1))
-        if ops != expected:
-            violations.append((job, expected, ops))
+
+    for job, grp in df_schedule.groupby("Job"):
+        grp_sorted = grp.sort_values("Start")
+        actual_op_sequence = grp_sorted["Operation"].tolist()
+        expected_sequence = sorted(actual_op_sequence)
+
+        if actual_op_sequence != expected_sequence:
+            violations.append((job, actual_op_sequence))
 
     if not violations:
-        print("+ Für alle Jobs ist die Operationssequenz korrekt.")
-        return True
-
-    print(f"- Fehler in der Operationssequenz bei {len(violations)} Job(s):")
-    for job, exp, act in violations:
-        print(f"  Job {job!r}: erwartet Indizes {exp}, gefunden {act}")
-    return False
-
-
-def is_job_timing_correct(df_schedule: pd.DataFrame) -> bool:
-    """
-    Prüft nur die zeitliche technologische Reihenfolge pro Job:
-    Jede Operation muss frühestens nach Ende der vorherigen starten.
-    Gibt True zurück, wenn alles korrekt ist.
-    Gibt False zurück und zeigt fehlerhafte Zeitabfolgen.
-    """
-    df = df_schedule.copy()
-    df = df.sort_values(["Job", "Start"]).reset_index(drop=True)
-
-    violations = []
-
-    for job in df["Job"].unique():
-        df_job = df[df["Job"] == job].sort_values("Start").reset_index(drop=True)
-
-        for i in range(1, len(df_job)):
-            prev_end = df_job.loc[i - 1, "End"]
-            curr_start = df_job.loc[i, "Start"]
-            if curr_start < prev_end:
-                violations.append((job, i, round(prev_end, 2), round(curr_start, 2)))
-
-    if not violations:
-        print("+ Zeitliche technologische Reihenfolge korrekt.")
+        print("+ Alle Jobs wurden in korrekter Operationsreihenfolge ausgeführt.")
         return True
     else:
-        print(f"- {len(violations)} Zeitverletzungen gefunden:")
-        for job, i, prev_end, curr_start in violations:
-            print(f"  Job {job} – Operation {i} startet zu früh: {curr_start} < {prev_end}")
+        print(f"- {len(violations)} Job(s) mit falscher Reihenfolge nach Startzeit:")
+        for job, seq in violations:
+            print(f"  Job {job}: Tatsächliche Reihenfolge: {seq}")
         return False
+
+
+# new
+def is_job_timing_correct(df_schedule: pd.DataFrame) -> bool:
+    """
+    Prüft, ob die technologischen Abhängigkeiten im Zeitplan eingehalten wurden.
+    D.h. keine spätere Operation beginnt vor Ende der vorherigen im selben Job.
+
+    Rückgabe:
+    - True, wenn korrekt. Sonst False mit Ausgabe der verletzenden Jobs.
+    """
+    violations = []
+
+    for job, grp in df_schedule.groupby('Job'):
+        grp = grp.sort_values('Operation')  # technologisch korrekt sortieren
+        previous_end = -1
+        for _, row in grp.iterrows():
+            if row['Start'] < previous_end:
+                violations.append((job, int(row['Operation']), int(row['Start']), int(previous_end)))
+            previous_end = row['End']
+
+    if not violations:
+        print("+ Alle technologischen Abhängigkeiten sind eingehalten.")
+        return True
+
+    print(f"- {len(violations)} Verletzung(en) der technologischen Reihenfolge gefunden:")
+    for job, op, start, prev_end in violations:
+        print(f"  Job {job!r}, Operation {op}: Start={start}, aber vorherige Operation endete erst bei {prev_end}")
+    return False
 
 
 
