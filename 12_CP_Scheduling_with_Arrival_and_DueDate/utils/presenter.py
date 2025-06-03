@@ -69,11 +69,22 @@ def plot_gantt_jobs(schedule_df: pd.DataFrame, title: str = "Gantt-Diagramm", du
     ax.set_xlabel("Zeit")
     ax.set_ylabel("Jobs")
     ax.set_title(title)
-    ax.grid(True)
-
+    ax.grid(True, axis='y', linestyle='--', alpha=0.3)
+    
     # Achsenlimits
     max_time = (schedule_df['Start'] + schedule_df[duration_column]).max()
-    ax.set_xlim(0, max_time * 1.05)
+    x_start = int((schedule_df['Start'].min() // 1440) * 1440)
+    ax.set_xlim(x_start, max_time)
+
+    # X-Achse alle 360 Minuten beschriften und gestricheltes Gitter anzeigen
+    xticks = list(range(x_start, int(max_time) + 360, 360))
+    ax.set_xticks(xticks)
+    ax.grid(True, axis='x', linestyle='--', alpha=0.6)
+
+    # Dezente durchgezogene Linien alle 1440 Minuten (Tagesgrenze)
+    for x in range(x_start, int(max_time) + 1440, 1440):
+        ax.axvline(x=x, color='#777777', linestyle='-', linewidth=1.0, alpha=0.6)
+
     plt.tight_layout()
     plt.show()
 
@@ -122,11 +133,16 @@ def plot_gantt_machines(schedule_df: pd.DataFrame, title: str = "Gantt-Diagramm 
     max_time = (schedule_df['Start'] + schedule_df[duration_column]).max()
 
     x_start = int((schedule_df['Start'].min() // 1440) * 1440)
-    ax.set_xlim(x_start, max_time + 120)
+    ax.set_xlim(x_start, max_time + 60)
 
-    # Vertikale Linien alle 1440 Einheiten (z.B. 1 Tag bei Minuten)
+    # X-Achse alle 360 Minuten (6 Stunden) beschriften und gestricheltes Gitter
+    xticks = list(range(x_start, int(max_time) + 360, 360))
+    ax.set_xticks(xticks)
+    ax.grid(True, axis='x', linestyle='--', alpha=0.6)
+    
+   # Dezente vertikale Linien alle 1440 Minuten (z. B. Tagesgrenze)
     for x in range(x_start, int(max_time) + 1440, 1440):
-        ax.axvline(x=x, color='gray', linestyle=':', linewidth=0.8, alpha=0.6)
+        ax.axvline(x=x, color='#777777', linestyle='-', linewidth=1.0, alpha=0.6)
 
     plt.tight_layout()
     plt.show()

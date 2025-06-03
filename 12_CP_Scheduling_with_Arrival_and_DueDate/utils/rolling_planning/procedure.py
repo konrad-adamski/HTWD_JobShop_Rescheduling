@@ -140,3 +140,41 @@ def get_operations_running_into_day(df_execution: pd.DataFrame, day_start: float
     - DataFrame mit relevanten Operationen.
     """
     return df_execution[df_execution["End"] >= day_start].copy()
+
+
+def get_operations_starting_today_plus(df_prev: pd.DataFrame, period_start: float) -> pd.DataFrame:
+    """
+    Gibt alle Operationen zurück, deren Startzeit im oder nach dem gegebenen Zeitraumstart liegt.
+    D.h. alle Operationen, die neu im betrachteten Zeitraum beginnen.
+
+    Parameter:
+    - df_prev: DataFrame mit mindestens der Spalte 'Start'.
+    - period_start: Startzeit des betrachteten Zeitraums (z.B. 1440.0 für Tag 2 bei Minutenmodellierung).
+
+    Rückgabe:
+    - DataFrame mit Operationen, die ab diesem Zeitraum starten.
+    """
+    return df_prev[df_prev["Start"] >= period_start].copy()
+
+
+def extend_operations_starting_today_plus(df_current: pd.DataFrame, df_prev: pd.DataFrame, period_start: float) -> pd.DataFrame:
+    """
+    Ergänzt df_current um alle Operationen aus df_prev, die ab dem gegebenen Zeitraumstart beginnen,
+    sofern solche vorhanden sind.
+
+    Parameter:
+    - df_current: DataFrame mit bereits bekannten Operationen.
+    - df_prev: DataFrame mit vergangenem/historischem Planungsstand.
+    - period_start: Startzeit des betrachteten Zeitraums (z.B. 1440.0 für Tag 2).
+
+    Rückgabe:
+    - Kombinierter DataFrame mit vorhandenen und neu startenden Operationen.
+    """
+    df_prev_ops = df_prev[df_prev["Start"] >= period_start].copy()
+    
+    if not df_prev_ops.empty:
+        df_combined = pd.concat([df_prev_ops, df_current], ignore_index=True).sort_values(["Start", "Job", "Operation"])
+    else:
+        df_combined = df_current.copy()
+
+    return df_combined
