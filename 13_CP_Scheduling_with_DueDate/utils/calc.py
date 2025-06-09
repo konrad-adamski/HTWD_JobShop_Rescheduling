@@ -67,7 +67,7 @@ def compute_nonzero_mean_tardiness_earliness(df_plan_last_ops_list):
 # Deviation ---------------------------------------------------------------------------------------------------------------
 # -------------------------------------------------------------------------------------------------------------------------
 
-def compute_daily_starttime_deviations(plan_list, job_col="Job", op_col="Operation", start_col="Start", method="sum"):
+def compute_daily_starttime_deviations(plan_list, method="sum", with_T1=True):
     """
     Berechnet die tägliche Startzeit-Abweichung zwischen aufeinanderfolgenden Plänen.
 
@@ -84,19 +84,15 @@ def compute_daily_starttime_deviations(plan_list, job_col="Job", op_col="Operati
     deviations = [0.0]  # Tag 0 ist Referenz
 
     for i in range(1, len(plan_list)):
-        deviation = calculate_deviation_wu(
-            df_original=plan_list[i - 1],
-            df_new=plan_list[i],
-            job_col=job_col,
-            op_col=op_col,
-            start_col=start_col,
-            method=method
-        )
+        if with_T1:
+            deviation = calculate_deviation_after_T1(df_original=plan_list[i - 1], df_new=plan_list[i], method=method)
+        else:    
+            deviation = calculate_deviation_wu(df_original=plan_list[i - 1], df_new=plan_list[i], method=method)
         deviations.append(deviation)
 
     return deviations
     
-def calculate_deviation_wu(df_original, df_new, job_col="Job", op_col="Operation", start_col="Start", method="sum"):
+def calculate_deviation_wu(df_original, df_new, method="sum"):
     """
     Berechnet die Abweichung der Startzeiten zwischen ursprünglichem und neuem Plan.
 
@@ -106,16 +102,66 @@ def calculate_deviation_wu(df_original, df_new, job_col="Job", op_col="Operation
     Rückgabe:
     - float: gewünschte Abweichung (Summe oder Mittelwert)
     """
+    # Merge aller Operationen
     merged = pd.merge(
-        df_new[[job_col, op_col, start_col]],
-        df_original[[job_col, op_col, start_col]],
-        on=[job_col, op_col],
+        df_new[["Job", "Operation", "Start"]],
+        df_original[["Job", "Operation", "Start"]],
+        on=["Job", "Operation"],
         suffixes=('_new', '_orig')
     )
 
-    merged['Deviation'] = (merged[f"{start_col}_new"] - merged[f"{start_col}_orig"]).abs()
+    merged["Deviation"] = (merged["Start_new"] - merged["Start_orig"]).abs()
 
     if method == "mean":
         return merged['Deviation'].mean()
     else:
         return merged['Deviation'].sum()
+
+
+def calculate_deviation_after_T1(df_original, df_new, method="sum"):
+    """
+    Berechnet die Abweichung der Startzeiten zwischen ursprünglichem und neuem Plan,
+    beginnend ab dem abgerundeten T1-Wert aus df_new.
+
+    Parameter:
+    - method: "sum" für Gesamtabweichung, "mean" für durchschnittliche Abweichung
+
+    Rückgabe:
+    - float: gewünschte Abweichung (Summe oder Mittelwert)
+    """
+    T1 = get_T1(df_new)
+
+    # Ursprüngliche Daten auf Operationen ab T1 eingrenzen
+    df_original_filtered = df_original[df_original["Start"] >= T1]
+
+    # Merge nur auf relevante Operationen
+    merged = pd.merge(
+        df_new[["Job", "Operation", "Start"]],
+        df_original_filtered[["Job", "Operation", "Start"]],
+        on=["Job", "Operation"],
+        suffixes=('_new', '_orig')
+    )
+
+    merged["Deviation"] = (merged["Start_new"] - merged["Start_orig"]).abs()
+
+    if method == "mean":
+        return merged["Deviation"].mean()
+    else:
+        return merged["Deviation"].sum()
+
+
+def get_T1(df_revised, base=1440):
+    """
+    Bestimmt den kleinsten Startzeitpunkt im DataFrame df_revised und rundet ihn auf das nächstkleinere Vielfache von `base` ab.
+
+    Parameter:
+    - df_revised: pandas.DataFrame mit einer Spalte 'Start'
+    - base: Ganzzahl, auf deren Vielfaches abgerundet wird (Standard: 1440)
+
+    Rückgabe:
+    - int: Abgerundeter Wert des kleinsten Startzeitpunkts
+    """
+    min_start = df_revised["Start"].min()
+    return (min_start // base) * base
+
+        

@@ -91,6 +91,7 @@ def proof_of_concept_v2(dev_A, dev_B,
 
     plt.title(title)
     ax1.set_xticks(days)
+    ax1.set_xticklabels([str(d + 1) for d in days])
     ax1.grid(axis='y', linestyle='--', alpha=0.7)
 
     # Gemeinsame Legende
